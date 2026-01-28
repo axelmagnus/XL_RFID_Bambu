@@ -4,6 +4,9 @@
 
 #include <SPI.h>
 #include <MFRC522.h>
+#include <bearssl/bearssl_hmac.h>
+#include <string.h>
+#include "material_lookup.h"
 
 // Pin mapping (ESP8266 Arduino numbers, not Dx labels):
 // SS/SDA  -> 16 (GPIO16, usually labeled D0) // user-chosen; OK as chip-select
@@ -18,10 +21,8 @@ static constexpr uint8_t RST_PIN = 2; // RC522 RST on GPIO2 (D4)
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
-// Paste the 16 derived A-keys (one per sector, 6 bytes each) after running:
-//   python3 deriveKeys.py <UID-hex-no-spaces>
-// from https://github.com/Bambu-Research-Group/RFID-Tag-Guide.
-// Placeholder zeros mean "not set"; the sketch will remind you over Serial.
+// SECTOR_KEY_A will be auto-filled from the UID using the same HKDF as deriveKeys.py
+// (salted with the known master and context "RFID-A\0"). Initial zeros are placeholders.
 static byte SECTOR_KEY_A[16][6] = {
     {0, 0, 0, 0, 0, 0}, // sector  0
     {0, 0, 0, 0, 0, 0}, // sector  1
@@ -41,6 +42,57 @@ static byte SECTOR_KEY_A[16][6] = {
     {0, 0, 0, 0, 0, 0}  // sector 15
 };
 
+static const uint8_t HKDF_SALT[16] = {0x9a, 0x75, 0x9c, 0xf2, 0xc4, 0xf7, 0xca, 0xff, 0x22, 0x2c, 0xb9, 0x76, 0x9b, 0x41, 0xbc, 0x96};
+static const uint8_t HKDF_INFO[7] = {'R', 'F', 'I', 'D', '-', 'A', 0x00};
+
+static void hkdfFromUid(const uint8_t *uid, size_t uidLen, uint8_t *out, size_t outLen)
+{
+    uint8_t prk[32];
+
+    br_hmac_key_context kc_salt;
+    br_hmac_context ctx;
+    br_hmac_key_init(&kc_salt, &br_sha256_vtable, HKDF_SALT, sizeof(HKDF_SALT));
+    br_hmac_init(&ctx, &kc_salt, 0);
+    br_hmac_update(&ctx, uid, uidLen);
+    br_hmac_out(&ctx, prk);
+
+    br_hmac_key_context kc_prk;
+    br_hmac_context ctx_prk;
+    br_hmac_key_init(&kc_prk, &br_sha256_vtable, prk, sizeof(prk));
+
+    uint8_t t[32];
+    size_t pos = 0;
+    uint8_t counter = 1;
+    size_t infoLen = sizeof(HKDF_INFO);
+
+    while (pos < outLen)
+    {
+        br_hmac_init(&ctx_prk, &kc_prk, 0);
+        if (counter > 1)
+        {
+            br_hmac_update(&ctx_prk, t, sizeof(t));
+        }
+        br_hmac_update(&ctx_prk, HKDF_INFO, infoLen);
+        br_hmac_update(&ctx_prk, &counter, 1);
+        br_hmac_out(&ctx_prk, t);
+
+        size_t take = (outLen - pos < sizeof(t)) ? (outLen - pos) : sizeof(t);
+        memcpy(out + pos, t, take);
+        pos += take;
+        counter++;
+    }
+}
+
+static void deriveKeysFromUid(const byte *uid, byte uidLen)
+{
+    uint8_t derived[16 * 6];
+    hkdfFromUid(uid, uidLen, derived, sizeof(derived));
+    for (uint8_t s = 0; s < 16; s++)
+    {
+        memcpy(SECTOR_KEY_A[s], derived + s * 6, 6);
+    }
+}
+
 static void printHex(byte *buffer, byte bufferSize)
 {
     for (byte i = 0; i < bufferSize; i++)
@@ -51,25 +103,6 @@ static void printHex(byte *buffer, byte bufferSize)
         if (i + 1 < bufferSize)
             Serial.print(' ');
     }
-}
-
-static bool keysAreFilled()
-{
-    for (uint8_t s = 0; s < 16; s++)
-    {
-        bool any = false;
-        for (uint8_t b = 0; b < 6; b++)
-        {
-            if (SECTOR_KEY_A[s][b] != 0)
-            {
-                any = true;
-                break;
-            }
-        }
-        if (!any)
-            return false;
-    }
-    return true;
 }
 
 static uint16_t le16(const byte *p)
@@ -84,19 +117,78 @@ static float leFloat(const byte *p)
     return f;
 }
 
+static void copyTrim(char *dst, size_t dstSize, const byte *src, size_t srcLen)
+{
+    size_t n = srcLen < (dstSize - 1) ? srcLen : (dstSize - 1);
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+    for (int i = static_cast<int>(n) - 1; i >= 0; --i)
+    {
+        if (dst[i] == ' ' || dst[i] == '\0')
+            dst[i] = '\0';
+        else
+            break;
+    }
+}
+
+static const MaterialInfo *lookupMaterial(const char *materialId, const char *variantId)
+{
+    // First, try exact variant match
+    for (size_t i = 0; i < MATERIAL_COUNT; i++)
+    {
+        const MaterialInfo &m = MATERIALS[i];
+        if (strlen(m.variantId) && strcmp(variantId, m.variantId) == 0)
+        {
+            return &m;
+        }
+    }
+    // Fallback to exact material ID match
+    for (size_t i = 0; i < MATERIAL_COUNT; i++)
+    {
+        const MaterialInfo &m = MATERIALS[i];
+        if (strlen(m.materialId) && strcmp(materialId, m.materialId) == 0)
+        {
+            return &m;
+        }
+    }
+    return nullptr;
+}
+
 static void decodeKnownBlock(uint8_t block, const byte *data)
 {
     switch (block)
     {
     case 1: // Material IDs
-        Serial.print("Block 1 (Material variant / ID): ");
-        for (int i = 0; i < 8; i++)
-            Serial.write(data[i]);
+    {
+        char variant[9];
+        char material[9];
+        copyTrim(variant, sizeof(variant), data, 8);
+        copyTrim(material, sizeof(material), data + 8, 8);
+        Serial.print("Block 1 (Variant / Material ID): ");
+        Serial.print(variant);
         Serial.print(" / ");
-        for (int i = 8; i < 16; i++)
-            Serial.write(data[i]);
-        Serial.println();
+        Serial.println(material);
+
+        const MaterialInfo *info = lookupMaterial(material, variant);
+        if (info)
+        {
+            Serial.print("  Filament code: ");
+            Serial.print(info->filamentCode);
+            Serial.print("  Name: ");
+            Serial.print(info->name);
+            if (strlen(info->color))
+            {
+                Serial.print("  Color: ");
+                Serial.print(info->color);
+            }
+            Serial.println();
+        }
+        else
+        {
+            Serial.println("  (No lookup entry; extend material_lookup.h for this variant/material.)");
+        }
         break;
+    }
     case 2: // Filament type
         Serial.print("Block 2 (Filament type): ");
         for (int i = 0; i < 16; i++)
@@ -230,11 +322,6 @@ void setup()
 
     Serial.println("RC522 ready. Present a Bambu Lab spool/tag...");
     rfid.PCD_DumpVersionToSerial();
-
-    if (!keysAreFilled())
-    {
-        Serial.println("Keys not set. Run deriveKeys.py with the tag UID and paste 16 lines (6-byte hex) into SECTOR_KEY_A.");
-    }
 }
 
 void loop()
@@ -251,17 +338,11 @@ void loop()
     Serial.println();
 
     MFRC522::PICC_Type piccType = rfid.PICC_GetType(rfid.uid.sak);
-    Serial.print("Type: ");
-    Serial.println(rfid.PICC_GetTypeName(piccType));
+    // Serial.print("Type: ");
+    // Serial.println(rfid.PICC_GetTypeName(piccType));
 
-    if (!keysAreFilled())
-    {
-        Serial.println("Add keys to SECTOR_KEY_A to read data blocks.");
-    }
-    else
-    {
-        readClassic();
-    }
+    deriveKeysFromUid(rfid.uid.uidByte, rfid.uid.size);
+    readClassic();
 
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
