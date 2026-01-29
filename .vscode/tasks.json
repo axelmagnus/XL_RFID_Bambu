@@ -1,0 +1,74 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "arduino: compile (ESP8266 HUZZAH)",
+            "type": "shell",
+            "command": "arduino-cli",
+            "args": [
+                "compile",
+                "--fqbn",
+                "esp8266:esp8266:huzzah",
+                "XL_RFID_Bambu.ino"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "arduino: compile+scan+upload",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-lc",
+                "PORT=/dev/cu.usbserial-017CE95C; echo Using port $PORT; arduino-cli compile --fqbn esp8266:esp8266:huzzah XL_RFID_Bambu.ino && arduino-cli upload -p \"$PORT\" --fqbn esp8266:esp8266:huzzah XL_RFID_Bambu.ino"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "dependsOn": []
+        },
+        {
+            "label": "arduino: list-ports",
+            "type": "shell",
+            "command": "arduino-cli",
+            "args": [
+                "board",
+                "list"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "arduino: upload (set PORT)",
+            "type": "shell",
+            "command": "sh",
+            "args": [
+                "-c",
+                "PORT=\"${input:serialPort}\" && arduino-cli upload -p \"$PORT\" --fqbn esp8266:esp8266:huzzah XL_RFID_Bambu.ino"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "serialPort",
+            "type": "promptString",
+            "description": "Enter serial port (e.g. /dev/cu.usbserial-1420)",
+            "default": ""
+        }
+    ]
+}

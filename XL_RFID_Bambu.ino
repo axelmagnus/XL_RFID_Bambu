@@ -164,15 +164,11 @@ static void decodeKnownBlock(uint8_t block, const byte *data)
         char material[9];
         copyTrim(variant, sizeof(variant), data, 8);
         copyTrim(material, sizeof(material), data + 8, 8);
-        Serial.print("Block 1 (Variant / Material ID): ");
-        Serial.print(variant);
-        Serial.print(" / ");
-        Serial.println(material);
 
         const MaterialInfo *info = lookupMaterial(material, variant);
         if (info)
         {
-            Serial.print("  Filament code: ");
+            Serial.print("Filament code: ");
             Serial.print(info->filamentCode);
             Serial.print("  Name: ");
             Serial.print(info->name);
@@ -181,22 +177,26 @@ static void decodeKnownBlock(uint8_t block, const byte *data)
                 Serial.print("  Color: ");
                 Serial.print(info->color);
             }
-            Serial.println();
         }
         else
         {
-            Serial.println("  (No lookup entry; extend material_lookup.h for this variant/material.)");
+            Serial.print("Variant: ");
+            Serial.print(variant);
+            Serial.print("  Material: ");
+            Serial.print(material);
+            Serial.print("  (no lookup; extend material_lookup.h)");
         }
+        Serial.println();
         break;
     }
     case 2: // Filament type
-        Serial.print("Block 2 (Filament type): ");
+        Serial.print("Filament type: ");
         for (int i = 0; i < 16; i++)
             Serial.write(data[i]);
         Serial.println();
         break;
     case 5: // Color/weight/diameter
-        Serial.print("Block 5 Color RGBA: 0x");
+        Serial.print("Color RGBA: 0x");
         for (int i = 3; i >= 0; i--)
         {
             if (data[i] < 0x10)
@@ -209,7 +209,7 @@ static void decodeKnownBlock(uint8_t block, const byte *data)
         Serial.println(leFloat(&data[8]), 3);
         break;
     case 6: // Temps
-        Serial.print("Block 6 DryTemp: ");
+        Serial.print("DryTemp: ");
         Serial.print(le16(&data[0]));
         Serial.print("C  DryTime(h): ");
         Serial.print(le16(&data[2]));
@@ -220,32 +220,31 @@ static void decodeKnownBlock(uint8_t block, const byte *data)
         Serial.print("C  HotendMin: ");
         Serial.println(le16(&data[10]));
         break;
-    case 8: // Nozzle diameter (LE float at offset 12)
-        Serial.print("Block 8 Nozzle(mm): ");
+    case 8: // Nozzle diameter
+        Serial.print("Nozzle(mm): ");
         Serial.println(leFloat(&data[12]), 3);
         break;
     case 9: // Tray UID
-        Serial.print("Block 9 (Tray UID): ");
-        for (int i = 0; i < 16; i++)
-            Serial.write(data[i]);
+        Serial.print("Tray UID: ");
+        printHex((byte *)data, 16);
         Serial.println();
         break;
-    case 10: // Spool width *100 at offset 4
-        Serial.print("Block 10 Spool width(mm): ");
+    case 10: // Spool width *100
+        Serial.print("Spool width(mm): ");
         Serial.println(le16(&data[4]) / 100.0f, 2);
         break;
     case 12: // Production date/time string
-        Serial.print("Block 12 Prod date: ");
+        Serial.print("Prod date: ");
         for (int i = 0; i < 16; i++)
             Serial.write(data[i]);
         Serial.println();
         break;
     case 14: // Filament length meters at offset 4
-        Serial.print("Block 14 Length(m): ");
+        Serial.print("Length(m): ");
         Serial.println(le16(&data[4]));
         break;
     case 16: // Extra color info
-        Serial.print("Block 16 FormatId: ");
+        Serial.print("FormatId: ");
         Serial.print(le16(&data[0]));
         Serial.print("  ColorCount: ");
         Serial.print(le16(&data[2]));
@@ -300,11 +299,6 @@ static void readClassic()
                 continue;
             }
 
-            Serial.print("Block ");
-            Serial.print(block);
-            Serial.print(" : ");
-            printHex(buffer, 16);
-            Serial.println();
             decodeKnownBlock(block, buffer);
         }
     }
