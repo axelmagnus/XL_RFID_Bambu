@@ -11,7 +11,7 @@ struct MaterialInfo
     const char *color;        // human color name
 };
 
-// Partial table populated from Bambu-Lab-RFID-Library README. Extend as new IDs are needed; the sketch will print a fallback note when missing.
+// Curated entries first, then auto-included generated list from Bambu-Lab-RFID-Library README (materialId may be blank). Extend if needed; sketch prints a fallback when missing.
 static const MaterialInfo MATERIALS[] = {
     // PLA Basic
     {"GFA00", "A00-W1", "10100", "PLA Basic", "Jade White"},
@@ -65,6 +65,10 @@ static const MaterialInfo MATERIALS[] = {
     {"GFA01", "A01-D3", "11102", "PLA Matte", "Ash Gray"},
     {"GFA01", "A01-D0", "11104", "PLA Matte", "Nardo Gray"},
     {"GFA01", "A01-K1", "11101", "PLA Matte", "Charcoal"},
+    // PLA Marble (subset)
+    {"", "A07-D4", "13103", "PLA Marble", "White Marble"},
+    // PLA Metal (subset)
+    {"", "A02-Y1", "13400", "PLA Metal", "Iridium Gold Metallic"},
     // PETG HF (subset)
     {"GFH02", "G02-K0", "33102", "PETG HF", "Black"},
     {"GFH02", "G02-W0", "33100", "PETG HF", "White"},
@@ -85,6 +89,9 @@ static const MaterialInfo MATERIALS[] = {
     {"GFB00", "B00-Y1", "40402", "ABS", "Tangerine Yellow"},
     {"GFB00", "B00-A0", "40300", "ABS", "Orange"},
     {"GFB00", "B00-R0", "40200", "ABS", "Red"},
-    {"GFB00", "B00-B4", "40601", "ABS", "Azure"}};
+    {"GFB00", "B00-B4", "40601", "ABS", "Azure"},
+// Auto-generated entries from Bambu-Lab-RFID-Library (materialId blank when unknown)
+#include "generated/materials_snippet.h"
+};
 
 static const size_t MATERIAL_COUNT = sizeof(MATERIALS) / sizeof(MATERIALS[0]);

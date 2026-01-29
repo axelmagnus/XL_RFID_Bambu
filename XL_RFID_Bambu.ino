@@ -3,7 +3,10 @@
 // derived with https://github.com/Bambu-Research-Group/RFID-Tag-Guide (deriveKeys.py).
 
 #include <SPI.h>
+#include <Wire.h>
 #include <MFRC522.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include <bearssl/bearssl_hmac.h>
 #include <string.h>
 #include "material_lookup.h"
@@ -18,6 +21,11 @@
 
 static constexpr uint8_t SS_PIN = 16; // SDA/SS moved to GPIO16 (D0)
 static constexpr uint8_t RST_PIN = 2; // RC522 RST on GPIO2 (D4)
+
+static constexpr uint8_t OLED_ADDR = 0x3C; // FeatherWing OLED I2C address
+static constexpr int OLED_WIDTH = 128;
+static constexpr int OLED_HEIGHT = 32;
+Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
@@ -44,6 +52,12 @@ static byte SECTOR_KEY_A[16][6] = {
 
 static const uint8_t HKDF_SALT[16] = {0x9a, 0x75, 0x9c, 0xf2, 0xc4, 0xf7, 0xca, 0xff, 0x22, 0x2c, 0xb9, 0x76, 0x9b, 0x41, 0xbc, 0x96};
 static const uint8_t HKDF_INFO[7] = {'R', 'F', 'I', 'D', '-', 'A', 0x00};
+
+static char lastCode[8] = "";
+static char lastName[16] = "";
+static char lastColor[16] = "";
+static unsigned long readIndicatorUntil = 0;
+static unsigned long ledOffAt = 0;
 
 static void hkdfFromUid(const uint8_t *uid, size_t uidLen, uint8_t *out, size_t outLen)
 {
@@ -154,6 +168,34 @@ static const MaterialInfo *lookupMaterial(const char *materialId, const char *va
     return nullptr;
 }
 
+static void updateDisplay()
+{
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextWrap(true);
+
+    bool showRead = readIndicatorUntil && millis() < readIndicatorUntil;
+
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    if (showRead)
+    {
+        display.print("Read");
+    }
+    else
+    {
+        display.print(lastCode);
+    }
+
+    display.setTextSize(1);
+    display.setCursor(63, 0);
+    display.println(lastName);
+
+    display.setCursor(0, 20);
+    display.println(lastColor);
+    display.display();
+}
+
 static void decodeKnownBlock(uint8_t block, const byte *data)
 {
     switch (block)
@@ -177,6 +219,16 @@ static void decodeKnownBlock(uint8_t block, const byte *data)
                 Serial.print("  Color: ");
                 Serial.print(info->color);
             }
+            Serial.print("  Variant: ");
+            Serial.print(variant);
+            Serial.print("  Material: ");
+            Serial.print(material);
+            strncpy(lastCode, info->filamentCode, sizeof(lastCode) - 1);
+            lastCode[sizeof(lastCode) - 1] = '\0';
+            strncpy(lastName, info->name, sizeof(lastName) - 1);
+            lastName[sizeof(lastName) - 1] = '\0';
+            strncpy(lastColor, info->color, sizeof(lastColor) - 1);
+            lastColor[sizeof(lastColor) - 1] = '\0';
         }
         else
         {
@@ -185,6 +237,9 @@ static void decodeKnownBlock(uint8_t block, const byte *data)
             Serial.print("  Material: ");
             Serial.print(material);
             Serial.print("  (no lookup; extend material_lookup.h)");
+            strncpy(lastCode, "?", sizeof(lastCode) - 1);
+            strncpy(lastName, material, sizeof(lastName) - 1);
+            strncpy(lastColor, variant, sizeof(lastColor) - 1);
         }
         Serial.println();
         break;
@@ -311,8 +366,25 @@ void setup()
     {
     }
 
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH); // active LOW on ESP8266
+
     SPI.begin();
     rfid.PCD_Init();
+
+    if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR))
+    {
+        Serial.println("OLED init failed");
+    }
+    else
+    {
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 0);
+        display.println("Waiting for tag...");
+        display.display();
+    }
 
     Serial.println("RC522 ready. Present a Bambu Lab spool/tag...");
     rfid.PCD_DumpVersionToSerial();
@@ -320,6 +392,18 @@ void setup()
 
 void loop()
 {
+    unsigned long now = millis();
+    if (ledOffAt && now >= ledOffAt)
+    {
+        digitalWrite(LED_BUILTIN, HIGH);
+        ledOffAt = 0;
+    }
+    if (readIndicatorUntil && now >= readIndicatorUntil)
+    {
+        readIndicatorUntil = 0;
+        updateDisplay();
+    }
+
     if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial())
     {
         delay(50);
@@ -337,6 +421,11 @@ void loop()
 
     deriveKeysFromUid(rfid.uid.uidByte, rfid.uid.size);
     readClassic();
+
+    readIndicatorUntil = millis() + 1000;
+    digitalWrite(LED_BUILTIN, LOW);
+    ledOffAt = millis() + 150;
+    updateDisplay();
 
     rfid.PICC_HaltA();
     rfid.PCD_StopCrypto1();
