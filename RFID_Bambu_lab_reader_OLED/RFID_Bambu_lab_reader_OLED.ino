@@ -1,4 +1,4 @@
-// Minimal RC522 + ESP8266 (Feather HUZZAH) reader for Bambu Lab filament tags
+// Minimal RC522 + ESP8266 (Feather HUZZAH) reader for Bambu Lab filament tags (OLED)
 // Uses hardware SPI and reads MIFARE Classic data when provided per-sector keys
 // derived with https://github.com/Bambu-Research-Group/RFID-Tag-Guide (deriveKeys.py).
 

@@ -1,23 +1,22 @@
-# XL_RFID_Bambu
+# Bambu RFID Readers
 
-ESP8266 Feather HUZZAH + RC522 reader that derives Bambu Lab MIFARE Classic sector keys on-device, reads spool tags, decodes filament metadata (code, name, color, type, temps, length, production date, tray UID, nozzle, width), and shows it on Serial and a 128x32 SSD1306 OLED. The built-in LED blinks on a read, and the OLED briefly shows "Read" before displaying the 5-digit filament code.
+<p align="center">
+	<img src="assets/rfid.jpg" alt="Bambu spool tag on reader" width="48%" />
+	<img src="assets/rc522.jpg" alt="ESP8266 Feather with RC522" width="48%" />
+</p>
 
-- Keys: Derived with the same HKDF (HMAC-SHA256) as Bambu-Lab-RFID-Library (`RFID-A\0` context, known salt), using tag UID as IKM; algorithm per Bambu-Research-Group/RFID-Tag-Guide (https://github.com/Bambu-Research-Group/RFID-Tag-Guide).
-- Hardware wiring (ESP8266 pin numbers below) is the tested default; any Arduino-compatible MCU with SPI + I2C and 3.3V for RC522 can be used.
-- Behavior: Read-only; no writes to the tag. Serial at 115200 baud prints decoded fields. OLED shows code/name/color; LED flashes for ~150 ms when a tag is read.
+ESP8266 Feather HUZZAH + RC522 readers that derive Bambu Lab MIFARE Classic sector keys on-device, read spool tags, and decode filament metadata (code, name, color, type, temps, length, production date, tray UID, nozzle, width). 
+The filament code is practical if you want to order a new roll of a filament but you've thrown the box away.
 
-## Setup
-1) Install `arduino-cli`, core `esp8266:esp8266`, and library `MFRC522`.
-2) Any Arduino-compatible MCU works if you adjust pins; tested with ESP8266 Feather HUZZAH. Main sketch: `XL_RFID_Bambu.ino`.
-3) Build/upload with your usual Arduino workflow (e.g., `arduino-cli compile --fqbn esp8266:esp8266:huzzah XL_RFID_Bambu.ino` and `arduino-cli upload -p /dev/cu.usbserial-<port> --fqbn esp8266:esp8266:huzzah XL_RFID_Bambu.ino`).
+Keys are derived with the same HKDF (HMAC-SHA256) as Bambu-Lab-RFID-Library (`RFID-A\0` context, known salt) using the tag UID as IKM, per Bambu-Research-Group/RFID-Tag-Guide.
 
-## Usage
-- Power the RC522 from 3.3V, keep its RST line high at boot, and present a Bambu spool/tag.
-- Serial output shows UID, filament code/name/color, type, temps, length, production date, tray UID, width, nozzle, etc.
-- OLED: top-left shows "Read" for 1s after a scan, then the 5-digit code (size 2). Name is rendered to the right (wraps) at size 1, color at (0,20).
+Variants (both are read-only; no tag writes):
+- `RFID_Bambu_lab_reader_OLED/RFID_Bambu_lab_reader_OLED.ino`: Serial + 128x32 SSD1306 OLED ([Adafruit OLED FeatherWing](https://learn.adafruit.com/adafruit-oled-featherwing)); LED flashes for ~150 ms and OLED briefly shows "Read" before the 5-digit filament code/name/color.
+- `RFID_Bambu_lab_reader/RFID_Bambu_lab_reader.ino`: Serial-only; LED flash only.
 
-### Pin mapping
-Tested on ESP8266 Feather HUZZAH (you can remap for other boards):
+Any Arduino-compatible MCU with SPI (and I2C for OLED) at 3.3V for RC522 should work; pins below are tested on ESP8266 Feather HUZZAH.
+
+## Pin mapping (ESP8266 HUZZAH)
 
 | Signal | ESP8266 pin |
 | --- | --- |
@@ -28,13 +27,29 @@ Tested on ESP8266 Feather HUZZAH (you can remap for other boards):
 | RC522 MISO | 12 (D6) |
 | RC522 VCC | 3.3V |
 | RC522 GND | GND |
-| OLED SDA | 4 (D2) |
-| OLED SCL | 5 (D1) |
+| OLED SDA (OLED variant) | 4 (D2) |
+| OLED SCL (OLED variant) | 5 (D1) |
 | OLED VCC | 3.3V |
 | OLED GND | GND |
 
+## Build & upload
+- Install `arduino-cli` (https://arduino.github.io/arduino-cli/latest/installation/) and ensure it is on your PATH (macOS: `brew install arduino-cli`; verify with `arduino-cli version`).
+- Install library `MFRC522`; OLED variant also needs `Adafruit_GFX` and `Adafruit_SSD1306`. Board FQBN: `esp8266:esp8266:huzzah`.
+- VS Code tasks (see `.vscode/tasks.json`):
+	- `arduino: compile (OLED)` → compiles `RFID_Bambu_lab_reader_OLED.ino`.
+	- `arduino: compile (serial-only)` → compiles `RFID_Bambu_lab_reader.ino`.
+	- `arduino: compile+upload (OLED)` → compiles + uploads OLED variant (set `PORT` in the task or via the input prompt).
+	- `arduino: upload (set PORT)` → upload helper.
+- CLI examples:
+	- `arduino-cli compile --fqbn esp8266:esp8266:huzzah RFID_Bambu_lab_reader_OLED/RFID_Bambu_lab_reader_OLED.ino`
+	- `arduino-cli compile --fqbn esp8266:esp8266:huzzah RFID_Bambu_lab_reader/RFID_Bambu_lab_reader.ino`
+	- `arduino-cli upload -p /dev/cu.usbserial-<port> --fqbn esp8266:esp8266:huzzah RFID_Bambu_lab_reader_OLED/RFID_Bambu_lab_reader_OLED.ino`
+
 ## Filament lookup
-`material_lookup.h` contains curated entries followed by an auto-included generated list scraped from Bambu-Lab-RFID-Library. Run `scripts/generate_materials.py` to fetch the latest README from that repe and emit `generated/materials_snippet.h` (included by the sketch) and `generated/materials.json`.
+`material_lookup.h` (one per sketch folder) contains curated entries followed by the generated list from the Bambu store scraper (wrapping queengooborg/Bambu-Lab-RFID-Library `scrape_filaments.py`). Regenerate with `python scripts/generate_materials.py`:
+- Default: writes to `generated/` at repo root, then copy into each sketch's `generated/` folder (already mirrored in this repo). You can also pass a target dir, e.g., `python scripts/generate_materials.py RFID_Bambu_lab_reader/generated`.
+- The script reuses any known `variantId`/`materialId` for a filament code from the previous `materials.json`; new colors from the store will have blank IDs (the tags still decode but will show the fallback message if the variant is unknown).
+- The sketch includes `generated/materials_snippet.h` after the curated entries. Extend `material_lookup.h` if a variant/material is missing; the sketch prints a fallback when lookup fails.
 
 Full table (variant → code/name/color) as currently generated:
 
@@ -243,6 +258,51 @@ Full table (variant → code/name/color) as currently generated:
 | S06-W0 | 66100 | Support for ABS | White |
 | S03-G1 | 65500 | Support for PA/PET | Green |
 | S04-Y0 | 66400 | PVA | Clear |
+
+
+### Missing variant IDs (needs tag scans)
+The store listing lacks `variantId` for these codes; scanning a real tag and sharing the variant would fill the gap.
+queengooborg collects these in Bambu-Lab-RFID-Library—please share scans or PRs via the contributing section: https://github.com/queengooborg/Bambu-Lab-RFID-Library/tree/main?tab=readme-ov-file#contributing
+
+| Filament Code | Material | Color |
+| --- | --- | --- |
+| 41600 | ABS-GF | Blue |
+| 41102 | ABS-GF | Gray |
+| 41400 | ABS-GF | Yellow |
+| 45600 | ASA | Blue |
+| 45500 | ASA | Green |
+| 46101 | ASA-CF | Black |
+| 72600 | PA6-GF | Blue |
+| 72800 | PA6-GF | Brown |
+| 72103 | PA6-GF | Gray |
+| 72500 | PA6-GF | Lime |
+| 72200 | PA6-GF | Orange |
+| 72102 | PA6-GF | White |
+| 72400 | PA6-GF | Yellow |
+| 31200 | PETG-CF | Brick Red |
+| 31600 | PETG-CF | Indigo Blue |
+| 31101 | PETG-CF | Titan Gray |
+| 14104 | PLA Aero | Gray |
+| 13800 | PLA Metal | Copper Brown Metallic |
+| 13913 | PLA Silk Multi-Color | Mystic Magenta |
+| 13916 | PLA Silk Multi-Color | Phantom Blue |
+| 12601 | PLA Tough+ | Cyan |
+| 12301 | PLA Tough+ | Orange |
+| 12106 | PLA Tough+ | Silver |
+| 12401 | PLA Tough+ | Yellow |
+| 13610 | PLA Translucent | Ice Blue |
+| 13711 | PLA Translucent | Lavender |
+| 13210 | PLA Translucent | Red |
+| 13612 | PLA Translucent | Teal |
+| 14200 | PLA-CF | Burgundy Red |
+| 14700 | PLA-CF | Iris Purple |
+| 14600 | PLA-CF | Jeans Blue |
+| 14500 | PLA-CF | Matcha Green |
+| 65102 | Support for PLA/PETG | Nature |
+| 53500 | TPU for AMS | Neon Green |
+| 53200 | TPU for AMS | Red |
+| 53100 | TPU for AMS | White |
+| 53400 | TPU for AMS | Yellow |
 
 
 ## References
